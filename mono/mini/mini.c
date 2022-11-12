@@ -3176,7 +3176,7 @@ mini_method_compile (MonoMethod *method, guint32 opts, MonoDomain *domain, JitFl
 	cfg->opt = opts;
 	cfg->run_cctors = run_cctors;
 	cfg->domain = domain;
-	cfg->verbose_level = mini_verbose;
+	cfg->verbose_level = 4;
 	cfg->compile_aot = compile_aot;
 	cfg->full_aot = full_aot;
 	cfg->disable_omit_fp = mini_debug_options.disable_omit_fp;
