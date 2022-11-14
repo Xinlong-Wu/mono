@@ -231,6 +231,7 @@ struct CallInfo {
 	ArgInfo args [1];
 };
 
+/* Relocations */
 enum {
 	MONO_R_RISCV_IMM  = 1,
 	MONO_R_RISCV_B    = 2,
@@ -240,6 +241,8 @@ enum {
 	MONO_R_RISCV_BGE  = 6,
 	MONO_R_RISCV_BLTU = 7,
 	MONO_R_RISCV_BGEU = 8,
+
+	MONO_R_RISCV_CALL = 9,
 };
 
 __attribute__ ((warn_unused_result)) guint8 *
