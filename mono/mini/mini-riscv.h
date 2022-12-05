@@ -235,6 +235,7 @@ typedef struct {
 } ArgInfo;
 
 struct CallInfo {
+	int nargs;
 	guint32 next_areg;
 	gboolean pinvoke, vararg;
 	guint32 stack_usage;
