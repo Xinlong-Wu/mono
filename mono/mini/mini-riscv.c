@@ -1155,6 +1155,7 @@ loop_start:
 
 			/* skip custom OP code*/
 			case OP_RISCV_BEQ:
+			case OP_RISCV_BNE:
 				break;
 
 			case OP_VOIDCALL_REG:
