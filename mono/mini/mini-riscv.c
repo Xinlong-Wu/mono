@@ -873,7 +873,7 @@ mono_arch_emit_call (MonoCompile *cfg, MonoCallInst *call)
 		in = call->args [i];
 		switch (ainfo->storage){
 			case ArgInIReg:{
-				if (!m_type_is_byref(t) && ((t->type == MONO_TYPE_I8) || (t->type == MONO_TYPE_U8))){
+				if (!mono_type_is_byref_internal(t) && ((t->type == MONO_TYPE_I8) || (t->type == MONO_TYPE_U8))){
 					NOT_IMPLEMENTED;
 				}
 				else{
