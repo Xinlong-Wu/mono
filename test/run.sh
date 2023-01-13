@@ -1,6 +1,5 @@
 # make -j 30;
-MONO_PATH=/home/wuxinlong/workspace/runtime/artifacts/bin/mono/Linux.riscv64.Debug \
-qemu-riscv64 -L ../.tools/rootfs/riscv64 mono -v -v -v -v $*
+qemu-riscv64 -L /home/wuxinlong/workspace/runtime/.tools/rootfs/riscv64 mono -v -v -v -v $*
 
 # ./test/run.sh --interp  --compile HelloWorld.Program:Main test/hello.exe
 
