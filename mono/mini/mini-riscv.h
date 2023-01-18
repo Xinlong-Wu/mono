@@ -151,7 +151,7 @@
 #define MONO_ARCH_INTERPRETER_SUPPORTED (1)
 //#define MONO_ARCH_AOT_SUPPORTED         (1)
 //#define MONO_ARCH_LLVM_SUPPORTED        (1)
-//#define MONO_ARCH_SOFT_DEBUG_SUPPORTED  (1)
+#define MONO_ARCH_SOFT_DEBUG_SUPPORTED  (1)
 
 
 // #define MONO_ARCH_HAVE_INTERP_ENTRY_TRAMPOLINE (1)
@@ -196,6 +196,12 @@ struct MonoLMF {
 	target_mgreg_t ra;
 	target_mgreg_t gregs [RISCV_N_GSREGS]; // s0..s11
 	double fregs [RISCV_N_FSREGS]; // fs0..fs11
+};
+
+/* Structure used by the sequence points in AOTed code */
+struct SeqPointInfo {
+	gpointer ss_tramp_addr;
+	guint8* bp_addrs [MONO_ZERO_LEN_ARRAY];
 };
 
 #define MONO_ARCH_INIT_TOP_LMF_ENTRY(lmf)
@@ -277,6 +283,9 @@ mono_riscv_emit_store (guint8 *code, int rs1, int rs2, gint32 imm, int length);
 
 __attribute__ ((warn_unused_result)) guint8 *
 mono_riscv_emit_fstore (guint8 *code, int rd, int rs1, gint32 imm);
+
+__attribute__ ((__warn_unused_result__)) guint8*
+mono_riscv_emit_destroy_frame (guint8 *code, int stack_offset);
 
 __attribute__ ((warn_unused_result)) guint8 *
 emit_store_regset (guint8 *code, guint64 regs, int basereg, int offset);
