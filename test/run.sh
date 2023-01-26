@@ -1,4 +1,5 @@
 # make -j 30;
+./clean.sh;
 qemu-riscv64 -L /home/wuxinlong/workspace/runtime/.tools/rootfs/riscv64 mono -v -v -v -v $*
 
 # ./test/run.sh --interp  --compile HelloWorld.Program:Main test/hello.exe
