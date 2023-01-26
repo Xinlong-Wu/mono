@@ -1334,7 +1334,9 @@ loop_start:
 			// Inst S{B|H|W|D} use I-type Imm
 			case OP_STORE_MEMBASE_REG:
 			case OP_STOREI1_MEMBASE_REG:
-			case OP_STOREI4_MEMBASE_REG:{
+			case OP_STOREI2_MEMBASE_REG:
+			case OP_STOREI4_MEMBASE_REG:
+			case OP_STOREI8_MEMBASE_REG:{
 				// check if offset is valid I-type Imm
 				if(! RISCV_VALID_I_IMM ((gint32) (gssize) (ins->inst_offset)))
 					NOT_IMPLEMENTED;
@@ -1342,8 +1344,11 @@ loop_start:
 			}
 			// Inst L{B|H|W|D} use I-type Imm
 			case OP_LOAD_MEMBASE:
-			case OP_LOADU4_MEMBASE:
+			case OP_LOADI1_MEMBASE:
+			case OP_LOADU1_MEMBASE:
 			case OP_LOADI4_MEMBASE:
+			case OP_LOADU4_MEMBASE:
+			case OP_LOADI8_MEMBASE:
 				if(! RISCV_VALID_I_IMM ((gint32) (gssize) (ins->inst_imm))){
 					NEW_INS (cfg, ins, temp, OP_ICONST);
 					temp->inst_c0 = (ins->inst_imm >> 12) << 12;
@@ -1527,15 +1532,15 @@ mono_riscv_emit_load (guint8 *code, int rd, int rs1, gint32 imm, int length)
 	case 1:
 		riscv_lb (code, rd, rs1, imm);
 		break;
-	case 4:
+	case 2:
 		riscv_lh (code, rd, rs1, imm);
 		break;
-	case 8:
+	case 4:
 		riscv_lw (code, rd, rs1, imm);
 		break;
 #ifdef TARGET_RISCV64
-	case 16:
-		riscv_lw (code, rd, rs1, imm);
+	case 8:
+		riscv_ld (code, rd, rs1, imm);
 		break;
 #endif
 	default:
@@ -1592,17 +1597,17 @@ mono_riscv_emit_store (guint8 *code, int rs2, int rs1, gint32 imm, int length)
 	case 1:
 		riscv_sb (code, rs2, rs1, imm);
 		break;
-	case 4:
+	case 2:
 		riscv_sh (code, rs2, rs1, imm);
 		break;
-	case 8:
+	case 4:
 		riscv_sw (code, rs2, rs1, imm);
 		break;
 #ifdef TARGET_RISCV64
-	case 16:
-		riscv_sw (code, rs2, rs1, imm);
-		break;
+	case 8:
+		riscv_sd (code, rs2, rs1, imm);
 #endif
+		break;
 	default:
 		g_assert_not_reached();
 		break;
@@ -2002,9 +2007,23 @@ mono_arch_output_basic_block (MonoCompile *cfg, MonoBasicBlock *bb)
 				code = mono_riscv_emit_load(code, ins->dreg, ins->sreg1, ins->inst_offset, 0);
 				MONO_ARCH_DUMP_CODE_DEBUG(code, cfg->verbose_level > 2);
 				break;
+			case OP_LOADI1_MEMBASE:
+			case OP_LOADU1_MEMBASE:
+				code = mono_riscv_emit_load(code, ins->dreg, ins->sreg1, ins->inst_offset, 1);
+				MONO_ARCH_DUMP_CODE_DEBUG(code, cfg->verbose_level > 2);
+				break;
+			case OP_LOADI2_MEMBASE:
+			case OP_LOADU2_MEMBASE:
+				code = mono_riscv_emit_load(code, ins->dreg, ins->sreg1, ins->inst_offset, 2);
+				MONO_ARCH_DUMP_CODE_DEBUG(code, cfg->verbose_level > 2);
+				break;
 			case OP_LOADU4_MEMBASE:
 			case OP_LOADI4_MEMBASE:
 				code = mono_riscv_emit_load(code, ins->dreg, ins->sreg1, ins->inst_offset, 4);
+				MONO_ARCH_DUMP_CODE_DEBUG(code, cfg->verbose_level > 2);
+				break;
+			case OP_LOADI8_MEMBASE:
+				code = mono_riscv_emit_load(code, ins->dreg, ins->sreg1, ins->inst_offset, 8);
 				MONO_ARCH_DUMP_CODE_DEBUG(code, cfg->verbose_level > 2);
 				break;
 			case OP_STORE_MEMBASE_REG:
@@ -2015,8 +2034,16 @@ mono_arch_output_basic_block (MonoCompile *cfg, MonoBasicBlock *bb)
 				code = mono_riscv_emit_store(code, ins->sreg1, ins->dreg, ins->inst_offset, 1);
 				MONO_ARCH_DUMP_CODE_DEBUG(code, cfg->verbose_level > 2);
 				break;
+			case OP_STOREI2_MEMBASE_REG:
+				code = mono_riscv_emit_store(code, ins->sreg1, ins->dreg, ins->inst_offset, 2);
+				MONO_ARCH_DUMP_CODE_DEBUG(code, cfg->verbose_level > 2);
+				break;
 			case OP_STOREI4_MEMBASE_REG:
 				code = mono_riscv_emit_store(code, ins->sreg1, ins->dreg, ins->inst_offset, 4);
+				MONO_ARCH_DUMP_CODE_DEBUG(code, cfg->verbose_level > 2);
+				break;
+			case OP_STOREI8_MEMBASE_REG:
+				code = mono_riscv_emit_store(code, ins->sreg1, ins->dreg, ins->inst_offset, 8);
 				MONO_ARCH_DUMP_CODE_DEBUG(code, cfg->verbose_level > 2);
 				break;
 			case OP_ICONST:
