@@ -1586,4 +1586,5 @@ MINI_OP(OP_ARM64_UMULH, "arm64_umulh", LREG, LREG, LREG)
 #if defined(TARGET_RISCV64) || defined(TARGET_RISCV32)
 MINI_OP(OP_RISCV_BEQ, "riscv_beq", NONE, IREG, IREG)
 MINI_OP(OP_RISCV_BNE, "riscv_bne", NONE, IREG, IREG)
+MINI_OP(OP_RISCV_BGE, "riscv_bge", NONE, IREG, IREG)
 #endif
