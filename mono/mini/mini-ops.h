@@ -1584,7 +1584,12 @@ MINI_OP(OP_ARM64_UMULH, "arm64_umulh", LREG, LREG, LREG)
 #endif // TARGET_ARM64
 
 #if defined(TARGET_RISCV64) || defined(TARGET_RISCV32)
+MINI_OP(OP_RISCV_EXC_BEQ, "riscv_exc_beq", NONE, IREG, IREG)
+
 MINI_OP(OP_RISCV_BEQ, "riscv_beq", NONE, IREG, IREG)
 MINI_OP(OP_RISCV_BNE, "riscv_bne", NONE, IREG, IREG)
 MINI_OP(OP_RISCV_BGE, "riscv_bge", NONE, IREG, IREG)
+
+MINI_OP(OP_RISCV_SLTIU, "riscv_sltiu", IREG, IREG, NONE)
+MINI_OP(OP_RISCV_SLT, "riscv_slt", IREG, IREG, IREG)
 #endif
