@@ -1613,7 +1613,7 @@ loop_start:
 			case OP_LOAD_MEMBASE:
 				if(! RISCV_VALID_I_IMM ((gint32) (gssize) (ins->inst_imm))){
 					NEW_INS (cfg, ins, temp, OP_ICONST);
-					temp->inst_c0 = (ins->inst_imm & 0xfff);
+					temp->inst_c0 = ins->inst_imm;
 					temp->dreg = mono_alloc_ireg (cfg);
 					ins->sreg1 = temp->dreg;
 					ins->inst_imm = 0;
@@ -1625,7 +1625,7 @@ loop_start:
 			case OP_LADD_IMM:
 				if(! RISCV_VALID_I_IMM ((gint32) (gssize) (ins->inst_imm))){
 					NEW_INS (cfg, ins, temp, OP_ICONST);
-					temp->inst_c0 = (ins->inst_imm & 0xfff);
+					temp->inst_c0 = ins->inst_imm;
 					temp->dreg = mono_alloc_ireg (cfg);
 					ins->sreg2 = temp->dreg;
 					ins->inst_imm = 0;
@@ -1670,15 +1670,13 @@ loop_start:
 				if(ins->inst_imm == 0){
 					ins->sreg2 = RISCV_ZERO;
 				}
-				else if(RISCV_VALID_I_IMM ((gint32) (gssize) (ins->inst_imm))){
+				else{
 					NEW_INS (cfg, ins, temp, OP_ICONST);
-					temp->inst_c0 = (ins->inst_imm & 0xfff);
+					temp->inst_c0 = ins->inst_imm;
 					temp->dreg = mono_alloc_ireg (cfg);
 					ins->sreg2 = temp->dreg;
 					ins->inst_imm = 0;
 				}
-				else
-					NOT_IMPLEMENTED;
 			}
 			case OP_ICOMPARE:
 			case OP_LCOMPARE:{
@@ -1734,7 +1732,7 @@ loop_start:
 			case OP_LAND_IMM:
 				if(! RISCV_VALID_I_IMM ((gint32) (gssize) (ins->inst_imm))){
 					NEW_INS (cfg, ins, temp, OP_ICONST);
-					temp->inst_c0 = (ins->inst_imm & 0xfff);
+					temp->inst_c0 = ins->inst_imm;
 					temp->dreg = mono_alloc_ireg (cfg);
 					ins->sreg2 = temp->dreg;
 					ins->inst_imm = 0;
