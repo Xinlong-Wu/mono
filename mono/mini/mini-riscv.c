@@ -1254,6 +1254,7 @@ mono_arch_decompose_opts (MonoCompile *cfg, MonoInst *ins)
 		case OP_LADD_IMM:
 		case OP_IADD_IMM:
 		case OP_LAND_IMM:
+		case OP_ISUB_IMM:
 		case OP_LOR:
 		case OP_ICONV_TO_I:
 		case OP_ICONV_TO_U:
@@ -1629,6 +1630,9 @@ loop_start:
 					ins->inst_imm = 0;
 				}
 				break;
+			case OP_SUB_IMM:
+				ins->inst_imm = -ins->inst_imm;
+				ins->opcode = OP_ADD_IMM;
 			// Inst ADDI use I-type Imm
 			case OP_ADD_IMM:
 			case OP_IADD_IMM:
