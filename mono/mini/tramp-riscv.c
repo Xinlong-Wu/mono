@@ -6,9 +6,9 @@
 #include "mini.h"
 #include "mini-riscv.h"
 #include "mini-runtime.h"
+#include "debugger-agent.h"
 
 #include <mono/metadata/abi-details.h>
-#include <mono/metadata/components.h>
 #include "mono/utils/mono-tls-inline.h"
 
 void
@@ -380,9 +380,9 @@ mono_arch_build_imt_trampoline (MonoVTable *vtable, MonoDomain *domain,
 	}
 
 	if (fail_tramp) {
-		buf = (guint8 *)mini_alloc_generic_virtual_trampoline (vtable, buf_len);
+		buf = (guint8*)mono_method_alloc_generic_virtual_trampoline (mono_domain_ambient_memory_manager (domain), buf_len);
 	} else {
-		MonoMemoryManager *mem_manager = m_class_get_mem_manager (vtable->klass);
+		MonoMemoryManager *mem_manager = m_class_get_mem_manager (domain, vtable->klass);
 		buf = mono_mem_manager_code_reserve (mem_manager, buf_len);
 	}
 	code = buf;
@@ -500,8 +500,6 @@ mono_arch_create_rgctx_lazy_fetch_trampoline (guint32 slot, MonoTrampInfo **info
 	if (is_mrgctx)
 		index += MONO_SIZEOF_METHOD_RUNTIME_GENERIC_CONTEXT / sizeof (target_mgreg_t);
 
-	int depth;
-
 	for (depth = 0; ; depth++) {
 		int size = mono_class_rgctx_get_array_size (depth, is_mrgctx);
 
@@ -571,7 +569,7 @@ mono_arch_create_rgctx_lazy_fetch_trampoline (guint32 slot, MonoTrampInfo **info
 	if (aot)
 		NOT_IMPLEMENTED;
 	else {
-		MonoMemoryManager *mem_manager = mini_get_default_mem_manager ();
+		MonoMemoryManager *mem_manager = mono_domain_ambient_memory_manager (mono_get_root_domain ());
 		tramp =
 		    (guint8 *)mono_arch_create_specific_trampoline (GUINT_TO_POINTER (slot), MONO_TRAMPOLINE_RGCTX_LAZY_FETCH,
 		                                                    mem_manager, &code_len);
@@ -694,8 +692,7 @@ mono_arch_create_sdb_trampoline (gboolean single_step, MonoTrampInfo **info, gbo
 	if (aot)
 		NOT_IMPLEMENTED;
 	else {
-		void (*addr) (MonoContext * ctx) = single_step ? mono_component_debugger ()->single_step_from_context
-		                                               : mono_component_debugger ()->breakpoint_from_context;
+		void (*addr) (MonoContext *ctx) = single_step ? mini_get_dbg_callbacks ()->single_step_from_context : mini_get_dbg_callbacks ()->breakpoint_from_context;
 		code = mono_riscv_emit_imm (code, RISCV_T0, (guint64)addr);
 	}
 	riscv_jalr (code, RISCV_RA, RISCV_T0, 0);

@@ -223,7 +223,7 @@ get_delegate_virtual_invoke_impl (MonoTrampInfo **info, gboolean load_imt_reg, i
 	MINI_END_CODEGEN (start, code - start, MONO_PROFILER_CODE_BUFFER_DELEGATE_INVOKE, NULL);
 
 	tramp_name = mono_get_delegate_virtual_invoke_impl_name (load_imt_reg, offset);
-	*info = mono_tramp_info_create (tramp_name, start, GPTRDIFF_TO_UINT32 (code - start), NULL, unwind_ops);
+	*info = mono_tramp_info_create (tramp_name, start, (code - start), NULL, unwind_ops);
 	g_free (tramp_name);
 
 	return start;
@@ -509,7 +509,7 @@ emit_thunk (guint8 *code, gconstpointer target)
 }
 
 static gpointer
-create_thunk (MonoCompile *cfg, guchar *code, const guchar *target)
+create_thunk (MonoCompile *cfg, MonoDomain *domain, guchar *code, const guchar *target)
 {
 	MonoJitInfo *ji;
 	MonoThunkJitInfo *info;
@@ -517,7 +517,9 @@ create_thunk (MonoCompile *cfg, guchar *code, const guchar *target)
 	int thunks_size;
 	guint8 *orig_target;
 	guint8 *target_thunk;
-	MonoJitMemoryManager *jit_mm;
+
+	if (!domain)
+		domain = mono_domain_get ();
 
 	if (cfg) {
 		/*
@@ -546,7 +548,7 @@ create_thunk (MonoCompile *cfg, guchar *code, const guchar *target)
 
 		return thunks;
 	} else {
-		ji = mini_jit_info_table_find (code);
+		ji = mini_jit_info_table_find (domain, (char*)code, NULL);
 		g_assert (ji);
 		info = mono_jit_info_get_thunk_info (ji);
 		g_assert (info);
@@ -556,10 +558,7 @@ create_thunk (MonoCompile *cfg, guchar *code, const guchar *target)
 
 		orig_target = mono_arch_get_call_target (code + 4);
 
-		/* Arbitrary lock */
-		jit_mm = get_default_jit_mm ();
-
-		jit_mm_lock (jit_mm);
+		mono_domain_lock (domain);
 
 		target_thunk = NULL;
 		if (orig_target >= thunks && orig_target < thunks + thunks_size) {
@@ -580,7 +579,7 @@ create_thunk (MonoCompile *cfg, guchar *code, const guchar *target)
 		}
 
 		if (!target_thunk) {
-			jit_mm_unlock (jit_mm);
+			mono_domain_unlock (domain);
 			g_print ("thunk failed %p->%p, thunk space=%d method %s", code, target, thunks_size,
 			         cfg ? mono_method_full_name (cfg->method, TRUE)
 			             : mono_method_full_name (jinfo_get_method (ji), TRUE));
@@ -589,14 +588,14 @@ create_thunk (MonoCompile *cfg, guchar *code, const guchar *target)
 
 		emit_thunk (target_thunk, target);
 
-		jit_mm_unlock (jit_mm);
+		mono_domain_unlock (domain);
 
 		return target_thunk;
 	}
 }
 
 static void
-riscv_patch_full (MonoCompile *cfg, guint8 *code, guint8 *target, int relocation)
+riscv_patch_full (MonoCompile *cfg, MonoDomain *domain, guint8 *code, guint8 *target, int relocation)
 {
 	switch (relocation) {
 	case MONO_R_RISCV_IMM:
@@ -610,7 +609,7 @@ riscv_patch_full (MonoCompile *cfg, guint8 *code, guint8 *target, int relocation
 			riscv_jal (code, rd, riscv_get_jal_disp (code, target));
 		else {
 			gpointer thunk;
-			thunk = create_thunk (cfg, code, target);
+			thunk = create_thunk (cfg, domain, code, target);
 			g_assert (riscv_is_jal_disp (code, thunk));
 			riscv_jal (code, rd, riscv_get_jal_disp (code, thunk));
 		}
@@ -679,7 +678,7 @@ riscv_patch_full (MonoCompile *cfg, guint8 *code, guint8 *target, int relocation
 static void
 riscv_patch_rel (guint8 *code, guint8 *target, int relocation)
 {
-	riscv_patch_full (NULL, code, target, relocation);
+	riscv_patch_full (NULL, NULL, code, target, relocation);
 }
 
 void
@@ -719,13 +718,13 @@ mono_arch_patch_code_new (MonoCompile *cfg, MonoDomain *domain, guint8 *code,
 	switch (ji->type) {
 	case MONO_PATCH_INFO_METHOD_JUMP:
 		/* ji->relocation is not set by the caller */
-		riscv_patch_full (cfg, ip, (guint8 *)target, MONO_R_RISCV_JAL);
+		riscv_patch_full (cfg, domain, ip, (guint8*)target, MONO_R_RISCV_JAL);
 		mono_arch_flush_icache (ip, 8);
 		break;
 	case MONO_PATCH_INFO_NONE:
 		break;
 	default:
-		riscv_patch_full (cfg, ip, (guint8 *)target, ji->relocation);
+		riscv_patch_full (cfg, domain, ip, (guint8*)target, ji->relocation);
 		break;
 	}
 }
@@ -1923,8 +1922,6 @@ mono_arch_decompose_opts (MonoCompile *cfg, MonoInst *ins)
 	case OP_LMUL_OVF:
 	case OP_IMUL_OVF_UN:
 	case OP_LMUL_OVF_UN:
-	case OP_IMUL_OVF_UN_OOM:
-	case OP_LMUL_OVF_UN_OOM:
 	case OP_IDIV:
 	case OP_LDIV:
 	case OP_FDIV:
@@ -2708,7 +2705,7 @@ mono_arch_lowering_pass (MonoCompile *cfg, MonoBasicBlock *bb)
 				temp->dreg = mono_alloc_ireg (cfg);
 
 				g_assert (mono_op_imm_to_op (ins->opcode) != -1);
-				ins->opcode = GINT_TO_OPCODE (mono_op_imm_to_op (ins->opcode));
+				ins->opcode = (mono_op_imm_to_op (ins->opcode));
 				ins->sreg1 = temp->dreg;
 			}
 			break;
@@ -3191,7 +3188,7 @@ mono_arch_lowering_pass (MonoCompile *cfg, MonoBasicBlock *bb)
 				temp->dreg = mono_alloc_ireg (cfg);
 
 				g_assert (mono_op_imm_to_op (ins->opcode) != -1);
-				ins->opcode = GINT_TO_OPCODE (mono_op_imm_to_op (ins->opcode));
+				ins->opcode =  (mono_op_imm_to_op (ins->opcode));
 				ins->sreg2 = temp->dreg;
 			}
 			break;
@@ -3280,7 +3277,7 @@ mono_arch_lowering_pass (MonoCompile *cfg, MonoBasicBlock *bb)
 			temp->dreg = mono_alloc_ireg (cfg);
 
 			g_assert (mono_op_imm_to_op (ins->opcode) != -1);
-			ins->opcode = GINT_TO_OPCODE (mono_op_imm_to_op (ins->opcode));
+			ins->opcode =  (mono_op_imm_to_op (ins->opcode));
 			ins->sreg2 = temp->dreg;
 			break;
 
@@ -3308,7 +3305,7 @@ mono_arch_lowering_pass (MonoCompile *cfg, MonoBasicBlock *bb)
 				temp->dreg = mono_alloc_ireg (cfg);
 
 				g_assert (mono_op_imm_to_op (ins->opcode) != -1);
-				ins->opcode = GINT_TO_OPCODE (mono_op_imm_to_op (ins->opcode));
+				ins->opcode =  (mono_op_imm_to_op (ins->opcode));
 				ins->sreg2 = temp->dreg;
 			}
 			break;
@@ -5091,7 +5088,7 @@ mono_arch_output_basic_block (MonoCompile *cfg, MonoBasicBlock *bb)
 				if (cfg->compile_aot) {
 					NOT_IMPLEMENTED;
 				} else {
-					mono_add_patch_info_rel (cfg, GPTRDIFF_TO_INT (code - cfg->native_code),
+					mono_add_patch_info_rel (cfg, (code - cfg->native_code),
 					                         MONO_PATCH_INFO_METHOD_JUMP, call->method, MONO_R_RISCV_JAL);
 					cfg->thunk_area += THUNK_SIZE;
 					riscv_jal (code, RISCV_ZERO, 0);
@@ -5108,7 +5105,7 @@ mono_arch_output_basic_block (MonoCompile *cfg, MonoBasicBlock *bb)
 			}
 
 			ins->flags |= MONO_INST_GC_CALLSITE;
-			ins->backend.pc_offset = GPTRDIFF_TO_INT (code - cfg->native_code);
+			ins->backend.pc_offset = (code - cfg->native_code);
 
 			break;
 		}
@@ -5122,7 +5119,7 @@ mono_arch_output_basic_block (MonoCompile *cfg, MonoBasicBlock *bb)
 			const MonoJumpInfoTarget patch = mono_call_to_patch (call);
 			code = mono_riscv_emit_call (cfg, code, patch.type, patch.target);
 			ins->flags |= MONO_INST_GC_CALLSITE;
-			ins->backend.pc_offset = GPTRDIFF_TO_INT (code - cfg->native_code);
+			ins->backend.pc_offset = (code - cfg->native_code);
 			code = emit_move_return_value (cfg, code, ins);
 			break;
 		}
@@ -5427,32 +5424,29 @@ mono_arch_skip_single_step (MonoContext *ctx)
 	NOT_IMPLEMENTED;
 }
 
-gpointer
+SeqPointInfo *
 mono_arch_get_seq_point_info (MonoDomain *domain, guint8 *code)
 {
 	SeqPointInfo *info;
 	MonoJitInfo *ji;
-	MonoJitMemoryManager *jit_mm;
-
-	jit_mm = get_default_jit_mm ();
 
 	// FIXME: Add a free function
 
-	jit_mm_lock (jit_mm);
-	info = (SeqPointInfo *)g_hash_table_lookup (jit_mm->arch_seq_points, code);
-	jit_mm_unlock (jit_mm);
+	mono_domain_lock (domain);
+	info = (SeqPointInfo *)g_hash_table_lookup (domain_jit_info (domain)->arch_seq_points, code);
+	mono_domain_unlock (domain);
 
 	if (!info) {
-		ji = mini_jit_info_table_find (code);
+		ji = mono_jit_info_table_find (domain, code);
 		g_assert (ji);
 
 		info = g_malloc0 (sizeof (SeqPointInfo) + (ji->code_size / 4) * sizeof (guint8 *));
 
 		info->ss_tramp_addr = &ss_trampoline;
 
-		jit_mm_lock (jit_mm);
-		g_hash_table_insert (jit_mm->arch_seq_points, code, info);
-		jit_mm_unlock (jit_mm);
+		mono_domain_lock (domain);
+		g_hash_table_insert (domain_jit_info (domain)->arch_seq_points, code, info);
+		mono_domain_unlock (domain);
 	}
 
 	return info;
