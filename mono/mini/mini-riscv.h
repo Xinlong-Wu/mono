@@ -168,7 +168,8 @@ extern gboolean riscv_stdext_a, riscv_stdext_b, riscv_stdext_c, riscv_stdext_d, 
 #define MONO_ARCH_INTERPRETER_SUPPORTED (1)
 //#define MONO_ARCH_AOT_SUPPORTED         (1)
 //#define MONO_ARCH_LLVM_SUPPORTED        (1)
-//#define MONO_ARCH_SOFT_DEBUG_SUPPORTED  (1)
+#define MONO_ARCH_SOFT_DEBUG_SUPPORTED  (1)
+#define MONO_ARCH_FLOAT32_SUPPORTED		(1)
 
 
 // #define MONO_ARCH_HAVE_INTERP_ENTRY_TRAMPOLINE (1)
