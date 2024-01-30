@@ -9,7 +9,6 @@
 #include "ir-emit.h"
 
 #include <mono/metadata/tokentype.h>
-#include <mono/metadata/marshal-shared.h>
 
 #ifdef TARGET_RISCV64
 #include "cpu-riscv64.h"
@@ -826,20 +825,8 @@ is_hfa (MonoType *t, int *out_nfields, int *out_esize, int *field_offsets){
 
 			MonoType *fixed_etype;
 			int fixed_len;
-			if (mono_marshal_shared_get_fixed_buffer_attr (field, &fixed_etype, &fixed_len)) {
-				if (fixed_etype->type != MONO_TYPE_R4 && fixed_etype->type != MONO_TYPE_R8)
-					return FALSE;
-				if (fixed_len > 16)
-					return FALSE;
-				nested_nfields = fixed_len;
-				nested_esize = fixed_etype->type == MONO_TYPE_R4 ? 4 : 8;
-				for (int i = 0; i < nested_nfields; ++i)
-					nested_field_offsets [i] = i * nested_esize;
-			}
-			else {
-				if (!is_hfa (ftype, &nested_nfields, &nested_esize, nested_field_offsets))
-					return FALSE;
-			}
+			if (!is_hfa (ftype, &nested_nfields, &nested_esize, nested_field_offsets))
+				return FALSE;
 
 			if (nested_esize == 4)
 				ftype = m_class_get_byval_arg (mono_defaults.single_class);
@@ -855,7 +842,7 @@ is_hfa (MonoType *t, int *out_nfields, int *out_esize, int *field_offsets){
 			}
 			nfields += nested_nfields;
 		} else {
-			if (!(!m_type_is_byref (ftype) && (ftype->type == MONO_TYPE_R4 || ftype->type == MONO_TYPE_R8)))
+			if (!(!ftype->byref && (ftype->type == MONO_TYPE_R4 || ftype->type == MONO_TYPE_R8)))
 				return FALSE;
 			if (prev_ftype && prev_ftype->type != ftype->type)
 				return FALSE;
@@ -894,7 +881,7 @@ add_valuetype (CallInfo *cinfo, ArgInfo *ainfo, MonoType *t)
 			ainfo->size = size;
 			ainfo->esize = esize;
 			for (int i = 0; i < nfields; ++i)
-				ainfo->foffsets [i] = GINT_TO_UINT8 (field_offsets [i]);
+				ainfo->foffsets [i] = (field_offsets [i]);
 			cinfo->next_farg += ainfo->nregs;
 		} else {
 			ainfo->nfregs_to_skip = cinfo->next_farg <= RISCV_FA7  ? RISCV_FA7 - cinfo->next_farg + 1 : 0;
@@ -4128,9 +4115,9 @@ emit_move_args (MonoCompile *cfg, guint8 *code)
 			case ArgHFA:
 				for (int part = 0; part < ainfo->nregs; part ++) {
 					if (ainfo->esize == 4)
-						code = mono_riscv_emit_fstore (code, ainfo->reg + part, ins->inst_basereg, GTMREG_TO_INT (ins->inst_offset + ainfo->foffsets [part]), TRUE);
+						code = mono_riscv_emit_fstore (code, ainfo->reg + part, ins->inst_basereg, (ins->inst_offset + ainfo->foffsets [part]), TRUE);
 					else
-						code = mono_riscv_emit_fstore (code, ainfo->reg + part, ins->inst_basereg, GTMREG_TO_INT (ins->inst_offset + ainfo->foffsets [part]), FALSE);
+						code = mono_riscv_emit_fstore (code, ainfo->reg + part, ins->inst_basereg, (ins->inst_offset + ainfo->foffsets [part]), FALSE);
 				}
 				break;
 			case ArgOnStack:
@@ -4200,7 +4187,7 @@ emit_move_return_value (MonoCompile *cfg, guint8 *code, MonoInst *ins)
 
 		/* Load the destination address */
 		g_assert (loc && loc->opcode == OP_REGOFFSET);
-		code = mono_riscv_emit_load (code, RISCV_T1, loc->inst_basereg, GTMREG_TO_INT (loc->inst_offset), 0);
+		code = mono_riscv_emit_load (code, RISCV_T1, loc->inst_basereg, (loc->inst_offset), 0);
 		for (i = 0; i < cinfo->ret.nregs; ++i) {
 			if (cinfo->ret.esize == 4)
 				code = mono_riscv_emit_fstore (code, cinfo->ret.reg + i, RISCV_T1, cinfo->ret.foffsets [i], TRUE);
@@ -4442,9 +4429,9 @@ mono_arch_emit_epilog (MonoCompile *cfg)
 
 		for (int i = 0; i < cinfo->ret.nregs; ++i) {
 			if (cinfo->ret.esize == 4)
-				code = mono_riscv_emit_fload (code, cinfo->ret.reg + i, ins->inst_basereg, GTMREG_TO_INT (ins->inst_offset + cinfo->ret.foffsets [i]), TRUE);
+				code = mono_riscv_emit_fload (code, cinfo->ret.reg + i, ins->inst_basereg, (ins->inst_offset + cinfo->ret.foffsets [i]), TRUE);
 			else
-				code = mono_riscv_emit_fload (code, cinfo->ret.reg + i, ins->inst_basereg, GTMREG_TO_INT (ins->inst_offset + cinfo->ret.foffsets [i]), FALSE);
+				code = mono_riscv_emit_fload (code, cinfo->ret.reg + i, ins->inst_basereg, (ins->inst_offset + cinfo->ret.foffsets [i]), FALSE);
 		}
 		break;
 	}
