@@ -146,7 +146,7 @@ mono_arch_cpu_optimizations (guint32 *exclude_mask)
 }
 
 // Reference to mini-arm64, should be the namber of Parameter Regs
-#define MAX_ARCH_DELEGATE_PARAMS 7
+#define MAX_ARCH_DELEGATE_PARAMS 8
 
 static gpointer
 get_delegate_invoke_impl (gboolean has_target, gboolean param_count, guint32 *code_size)
@@ -282,7 +282,7 @@ mono_arch_get_delegate_invoke_impl (MonoMethodSignature *sig, gboolean has_targe
 		static guint8 *cache [MAX_ARCH_DELEGATE_PARAMS + 1] = {NULL};
 
 		if (sig->param_count > MAX_ARCH_DELEGATE_PARAMS)
-			NOT_IMPLEMENTED;
+			return NULL;
 		for (int i = 0; i < sig->param_count; ++i)
 			if (!mono_is_regsize_var (sig->params [i]))
 				return NULL;
@@ -767,11 +767,11 @@ add_arg (CallInfo *cinfo, ArgInfo *ainfo, int size, gboolean sign)
 	}
 	// If no argument registers are available, the scalar is passed on the stack by value
 	else {
-		// 	cinfo->stack_usage & ainfo->offset
-		// will be calculated in get_call_info()
 		ainfo->storage = ArgOnStack;
-		ainfo->slot_size = size;
+		ainfo->slot_size = sizeof (host_mgreg_t);
 		ainfo->is_signed = sign;
+		ainfo->offset = cinfo->stack_usage;
+		cinfo->stack_usage += sizeof (host_mgreg_t);
 	}
 }
 
@@ -792,6 +792,8 @@ add_farg (CallInfo *cinfo, ArgInfo *ainfo, gboolean single)
 	} else {
 		ainfo->storage = single ? ArgOnStackR4 : ArgOnStackR8;
 		ainfo->slot_size = size;
+		ainfo->offset = cinfo->stack_usage;
+		cinfo->stack_usage += size;
 	}
 }
 
@@ -825,8 +827,8 @@ add_valuetype (CallInfo *cinfo, ArgInfo *ainfo, MonoType *t)
 		if (cinfo->next_arg > RISCV_A7) {
 			ainfo->offset = cinfo->stack_usage;
 			ainfo->storage = ArgVtypeOnStack;
-			cinfo->stack_usage += sizeof (host_mgreg_t) * 2;
-			ainfo->slot_size = sizeof (host_mgreg_t) * 2;
+			cinfo->stack_usage += aligned_size;
+			ainfo->slot_size = aligned_size;
 		}
 		// If exactly one register is available, the low-order XLEN bits are
 		// passed in the register and the high-order XLEN bits are passed on the stack
@@ -859,8 +861,8 @@ add_valuetype (CallInfo *cinfo, ArgInfo *ainfo, MonoType *t)
 		if (cinfo->next_arg > RISCV_A7) {
 			ainfo->offset = cinfo->stack_usage;
 			ainfo->storage = ArgVtypeOnStack;
-			cinfo->stack_usage += sizeof (host_mgreg_t);
-			ainfo->slot_size = sizeof (host_mgreg_t);
+			cinfo->stack_usage += aligned_size;
+			ainfo->slot_size = aligned_size;
 		} else {
 			ainfo->storage = ArgVtypeInIReg;
 			ainfo->reg = cinfo->next_arg;
@@ -1006,7 +1008,6 @@ get_call_info (MonoMemPool *mp, MonoMethodSignature *sig)
 	}
 
 	// other general Arguments
-	guint32 argStack = 0;
 	for (pindex = paramStart; pindex < sig->param_count; ++pindex) {
 		ArgInfo *ainfo = cinfo->args + sig->hasthis + pindex;
 
@@ -1015,12 +1016,6 @@ get_call_info (MonoMemPool *mp, MonoMethodSignature *sig)
 			NOT_IMPLEMENTED;
 
 		add_param (cinfo, ainfo, sig->params [pindex]);
-
-		if (ainfo->storage == ArgOnStack || ainfo->storage == ArgOnStackR4 || ainfo->storage == ArgOnStackR8) {
-			ainfo->offset = argStack;
-			cinfo->stack_usage += ainfo->slot_size;
-			argStack += ainfo->slot_size;
-		}
 	}
 
 	/* Handle the case where there are no implicit arguments */
@@ -1582,7 +1577,8 @@ mono_arch_emit_call (MonoCompile *cfg, MonoCallInst *call)
 		case ArgVtypeInIReg:
 		case ArgVtypeByRef:
 		case ArgVtypeOnStack:
-		case ArgVtypeInMixed: {
+		case ArgVtypeInMixed:
+		case ArgVtypeByRefOnStack: {
 			MonoInst *ins;
 			guint32 align;
 			guint32 size;
@@ -1659,6 +1655,7 @@ mono_arch_emit_outarg_vt (MonoCompile *cfg, MonoInst *ins, MonoInst *src)
 		load->inst_basereg = src->dreg;
 		load->inst_offset = 0;
 		MONO_ADD_INS (cfg->cbb, load);
+		add_outarg_reg (cfg, call, ArgInIReg, ainfo->reg, load);
 
 		MONO_INST_NEW (cfg, load, OP_LOAD_MEMBASE);
 		load->dreg = mono_alloc_ireg (cfg);
@@ -1668,7 +1665,8 @@ mono_arch_emit_outarg_vt (MonoCompile *cfg, MonoInst *ins, MonoInst *src)
 		MONO_EMIT_NEW_STORE_MEMBASE (cfg, OP_STORE_MEMBASE_REG, RISCV_SP, ainfo->offset, load->dreg);
 		break;
 	}
-	case ArgVtypeByRef: {
+	case ArgVtypeByRef:
+	case ArgVtypeByRefOnStack: {
 		MonoInst *vtaddr, *arg;
 		/* Pass the vtype address in a reg/on the stack */
 		// if (ainfo->gsharedvt) {
@@ -1788,7 +1786,9 @@ mono_arch_decompose_opts (MonoCompile *cfg, MonoInst *ins)
 	case OP_FCONV_TO_R4:
 	case OP_FCONV_TO_R8:
 	case OP_FCONV_TO_I8:
+	case OP_FCONV_TO_OVF_I8:
 	case OP_RCONV_TO_I8:
+	case OP_RCONV_TO_OVF_I8:
 #endif
 	case OP_FNEG:
 	case OP_IAND:
@@ -1833,16 +1833,32 @@ mono_arch_decompose_opts (MonoCompile *cfg, MonoInst *ins)
 	case OP_LREM_UN:
 	case OP_IREM_UN_IMM:
 
+	case OP_ICONV_TO_OVF_U1:
+	case OP_ICONV_TO_OVF_U1_UN:
 	case OP_ICONV_TO_OVF_U2:
+	case OP_ICONV_TO_OVF_U2_UN:
+	case OP_ICONV_TO_OVF_U4:
+	case OP_ICONV_TO_OVF_U4_UN:
+	case OP_ICONV_TO_OVF_U8:
+	case OP_ICONV_TO_OVF_U8_UN:
 	case OP_LCONV_TO_OVF_I:
 	case OP_LCONV_TO_OVF_U:
+	case OP_LCONV_TO_OVF_U1:
+	case OP_LCONV_TO_OVF_U1_UN:
+	case OP_LCONV_TO_OVF_U2:
+	case OP_LCONV_TO_OVF_U2_UN:
 	case OP_LCONV_TO_OVF_I4:
 	case OP_LCONV_TO_OVF_I4_UN:
+	case OP_LCONV_TO_OVF_U4:
 	case OP_LCONV_TO_OVF_U4_UN:
+	case OP_LCONV_TO_OVF_U8:
+	case OP_LCONV_TO_OVF_U8_UN:
 
 	case OP_LADD_OVF:
 	case OP_LADD_OVF_UN:
+	case OP_LSUB_OVF:
 	case OP_IMUL_OVF:
+	case OP_LMUL_OVF:
 	case OP_LMUL_OVF_UN:
 	case OP_LMUL_OVF_UN_OOM:
 
@@ -1983,6 +1999,21 @@ mono_arch_allocate_vars (MonoCompile *cfg)
 			offset += sizeof (host_mgreg_t) * 2;
 			ins->inst_offset = -offset;
 			break;
+		case ArgVtypeByRefOnStack: {
+			MonoInst *vtaddr;
+
+			/* The vtype address is in the parent frame */
+			g_assert (ainfo->offset >= 0);
+			MONO_INST_NEW (cfg, vtaddr, 0);
+			vtaddr->opcode = OP_REGOFFSET;
+			vtaddr->inst_basereg = RISCV_FP;
+			vtaddr->inst_offset = ainfo->offset;
+
+			/* Need an indirection */
+			ins->opcode = OP_VTARG_ADDR;
+			ins->inst_left = vtaddr;
+			break;
+		}
 		case ArgVtypeByRef: {
 			MonoInst *vtaddr;
 
@@ -1998,8 +2029,8 @@ mono_arch_allocate_vars (MonoCompile *cfg)
 			MONO_INST_NEW (cfg, vtaddr, 0);
 			vtaddr->opcode = OP_REGOFFSET;
 			vtaddr->inst_basereg = cfg->frame_reg;
-			vtaddr->inst_offset = offset;
 			offset += sizeof (host_mgreg_t);
+			vtaddr->inst_offset = -offset;
 
 			/* Need an indirection */
 			ins->opcode = OP_VTARG_ADDR;
@@ -2109,6 +2140,7 @@ mono_arch_lowering_pass (MonoCompile *cfg, MonoBasicBlock *bb)
 	{
 	loop_start:
 		switch (ins->opcode) {
+		case OP_BREAK:
 		case OP_IL_SEQ_POINT:
 		case OP_SEQ_POINT:
 		case OP_GC_SAFE_POINT:
@@ -2232,6 +2264,7 @@ mono_arch_lowering_pass (MonoCompile *cfg, MonoBasicBlock *bb)
 		case OP_FCEQ:
 		case OP_FCLT:
 		case OP_RCLT:
+		case OP_RCLT_UN:
 		case OP_FCLT_UN:
 		case OP_RISCV_SETFREG_R4:
 		case OP_R4CONST:
@@ -2402,6 +2435,7 @@ mono_arch_lowering_pass (MonoCompile *cfg, MonoBasicBlock *bb)
 			break;
 
 		case OP_CALL_MEMBASE:
+		case OP_RCALL_MEMBASE:
 		case OP_LCALL_MEMBASE:
 		case OP_FCALL_MEMBASE:
 		case OP_VCALL2_MEMBASE:
@@ -2426,7 +2460,9 @@ mono_arch_lowering_pass (MonoCompile *cfg, MonoBasicBlock *bb)
 			}
 			break;
 		case OP_CALL_REG:
+		case OP_FCALL_REG:
 		case OP_VOIDCALL_REG:
+		case OP_VCALL2_REG:
 			break;
 
 		/* Throw */
@@ -2548,38 +2584,6 @@ mono_arch_lowering_pass (MonoCompile *cfg, MonoBasicBlock *bb)
 				ins->sreg1 = temp->dreg;
 				ins->inst_imm = 0;
 			}
-			// TODO: Move This to Optimisation
-			if ((ins->next) && (ins->next->opcode >= OP_ZEXT_I1 && ins->next->opcode <= OP_ZEXT_I4)) {
-				switch (ins->opcode) {
-				case OP_LOADI1_MEMBASE:
-					ins->opcode = OP_LOADU1_MEMBASE;
-					ins->dreg = ins->next->dreg;
-					NULLIFY_INS (ins->next);
-					break;
-				case OP_LOADI2_MEMBASE:
-					ins->opcode = OP_LOADU2_MEMBASE;
-					ins->dreg = ins->next->dreg;
-					NULLIFY_INS (ins->next);
-					break;
-				case OP_LOADI4_MEMBASE:
-					ins->opcode = OP_LOADU4_MEMBASE;
-					ins->dreg = ins->next->dreg;
-					NULLIFY_INS (ins->next);
-					break;
-				case OP_LOADU1_MEMBASE:
-				case OP_LOADU2_MEMBASE:
-				case OP_LOADU4_MEMBASE:
-					ins->dreg = ins->next->dreg;
-					NULLIFY_INS (ins->next);
-					break;
-				case OP_LOAD_MEMBASE:
-				case OP_LOADI8_MEMBASE:
-					break;
-				default:
-					g_print (mono_inst_name (ins->opcode));
-					g_assert_not_reached ();
-				}
-			}
 			break;
 
 		case OP_COMPARE_IMM:
@@ -2671,12 +2675,12 @@ mono_arch_lowering_pass (MonoCompile *cfg, MonoBasicBlock *bb)
 					ins->next->sreg1 = ins->sreg1;
 					ins->next->sreg2 = ins->sreg2;
 					NULLIFY_INS (ins);
-				} else if (ins->next->opcode == OP_COND_EXC_LT) {
+				} else if (ins->next->opcode == OP_COND_EXC_LT || ins->next->opcode == OP_COND_EXC_ILT) {
 					ins->next->opcode = OP_RISCV_EXC_BLT;
 					ins->next->sreg1 = ins->sreg1;
 					ins->next->sreg2 = ins->sreg2;
 					NULLIFY_INS (ins);
-				} else if (ins->next->opcode == OP_COND_EXC_LT_UN) {
+				} else if (ins->next->opcode == OP_COND_EXC_LT_UN || ins->next->opcode == OP_COND_EXC_ILT_UN) {
 					ins->next->opcode = OP_RISCV_EXC_BLTU;
 					ins->next->sreg1 = ins->sreg1;
 					ins->next->sreg2 = ins->sreg2;
@@ -2787,7 +2791,8 @@ mono_arch_lowering_pass (MonoCompile *cfg, MonoBasicBlock *bb)
 				} else if (ins->next->opcode == OP_IL_SEQ_POINT || ins->next->opcode == OP_MOVE ||
 				           ins->next->opcode == OP_LOAD_MEMBASE || ins->next->opcode == OP_NOP ||
 				           ins->next->opcode == OP_LOADI4_MEMBASE || ins->next->opcode == OP_BR ||
-				           ins->next->opcode == OP_LOADI8_MEMBASE || ins->next->opcode == OP_ICONST) {
+				           ins->next->opcode == OP_LOADI8_MEMBASE || ins->next->opcode == OP_ICONST ||
+				           ins->next->opcode == OP_I8CONST || ins->next->opcode == OP_ADD_IMM) {
 					/**
 					 * there is compare without branch OP followed
 					 *
@@ -2822,17 +2827,22 @@ mono_arch_lowering_pass (MonoCompile *cfg, MonoBasicBlock *bb)
 			// convert OP_{I|L}SUB_IMM to their corresponding ADD_IMM
 			ins->opcode -= 1;
 			goto loop_start;
+		case OP_SUBCC:
 		case OP_ISUBCC:
+		case OP_LSUBCC:
 			/**
 			 * sub rd, rs1, rs2
 			 * slti t1, x0, rs2
 			 * slt t2, rd, rs1
 			 * bne t1, t2, overflow
 			*/
-			ins->opcode = OP_ISUB;
+			if (ins->opcode == OP_LSUBCC)
+				ins->opcode = OP_LSUB;
+			else
+				ins->opcode = OP_ISUB;
 			MonoInst *branch_ins = ins->next;
 			if (branch_ins) {
-				if (ins->next->opcode == OP_COND_EXC_IOV){
+				if (branch_ins->opcode == OP_COND_EXC_OV || ins->next->opcode == OP_COND_EXC_IOV) {
 					// bne t1, t2, overflow
 					branch_ins->opcode = OP_RISCV_EXC_BNE;
 					branch_ins->sreg1 = mono_alloc_ireg (cfg);
@@ -2849,8 +2859,7 @@ mono_arch_lowering_pass (MonoCompile *cfg, MonoBasicBlock *bb)
 					temp->dreg = branch_ins->sreg2;
 					temp->sreg1 = ins->dreg;
 					temp->sreg2 = ins->sreg1;
-				}
-				else{
+				} else {
 					mono_print_ins (branch_ins);
 					g_assert_not_reached ();
 				}
@@ -2872,7 +2881,14 @@ mono_arch_lowering_pass (MonoCompile *cfg, MonoBasicBlock *bb)
 			 * slt t4,t0,t1
 			 * bne t3, t4, overflow
 			 */
-			ins->opcode = OP_IADD;
+
+#ifdef TARGET_RISCV64
+			if (ins->opcode == OP_ADDCC)
+				ins->opcode = OP_LADD;
+			else
+#endif
+				ins->opcode = OP_IADD;
+
 			MonoInst *branch_ins = ins->next;
 			if (branch_ins) {
 				if (branch_ins->opcode == OP_COND_EXC_C || branch_ins->opcode == OP_COND_EXC_OV || branch_ins->opcode == OP_COND_EXC_IOV) {
@@ -3172,7 +3188,7 @@ mono_riscv_emit_nop (guint8 *code)
 // Uses at most 16 bytes on RV32I and 24 bytes on RV64I.
 // length == 0 means the data size follows the XLEN
 guint8 *
-mono_riscv_emit_load (guint8 *code, int rd, int rs1, gint32 imm, int length)
+mono_riscv_emit_load (guint8 *code, int rd, int rs1, target_mgreg_t imm, int length)
 {
 	if (!RISCV_VALID_I_IMM (imm)) {
 		code = mono_riscv_emit_imm (code, RISCV_T0, imm);
@@ -3212,7 +3228,7 @@ mono_riscv_emit_load (guint8 *code, int rd, int rs1, gint32 imm, int length)
 
 // Uses at most 16 bytes on RV32I and 24 bytes on RV64I.
 guint8 *
-mono_riscv_emit_loadu (guint8 *code, int rd, int rs1, gint32 imm, int length)
+mono_riscv_emit_loadu (guint8 *code, int rd, int rs1, target_mgreg_t imm, int length)
 {
 	if (!RISCV_VALID_I_IMM (imm)) {
 		code = mono_riscv_emit_imm (code, RISCV_T0, imm);
@@ -3242,7 +3258,7 @@ mono_riscv_emit_loadu (guint8 *code, int rd, int rs1, gint32 imm, int length)
 
 // Uses at most 16 bytes on RV32D and 24 bytes on RV64D.
 guint8 *
-mono_riscv_emit_fload (guint8 *code, int rd, int rs1, gint32 imm, gboolean isSingle)
+mono_riscv_emit_fload (guint8 *code, int rd, int rs1, target_mgreg_t imm, gboolean isSingle)
 {
 	g_assert (riscv_stdext_d || (isSingle && riscv_stdext_f));
 	if (!RISCV_VALID_I_IMM (imm)) {
@@ -3263,7 +3279,7 @@ mono_riscv_emit_fload (guint8 *code, int rd, int rs1, gint32 imm, gboolean isSin
 // May clobber t0. Uses at most 16 bytes on RV32I and 24 bytes on RV64I.
 // length == 0 means the data size follows the XLEN
 guint8 *
-mono_riscv_emit_store (guint8 *code, int rs2, int rs1, gint32 imm, int length)
+mono_riscv_emit_store (guint8 *code, int rs2, int rs1, target_mgreg_t imm, int length)
 {
 	if (!RISCV_VALID_S_IMM (imm)) {
 		code = mono_riscv_emit_imm (code, RISCV_T0, imm);
@@ -3303,7 +3319,7 @@ mono_riscv_emit_store (guint8 *code, int rs2, int rs1, gint32 imm, int length)
 
 // May clobber t0. Uses at most 16 bytes on RV32I and 24 bytes on RV64I.
 guint8 *
-mono_riscv_emit_fstore (guint8 *code, int rs2, int rs1, gint32 imm, gboolean isSingle)
+mono_riscv_emit_fstore (guint8 *code, int rs2, int rs1, target_mgreg_t imm, gboolean isSingle)
 {
 	g_assert (riscv_stdext_d || (isSingle && riscv_stdext_f));
 	if (!RISCV_VALID_I_IMM (imm)) {
@@ -3502,11 +3518,10 @@ emit_setup_lmf (MonoCompile *cfg, guint8 *code, gint32 lmf_offset)
 	 */
 	g_assert (lmf_offset <= 0);
 	/* pc */
-	code = mono_riscv_emit_imm (code, RISCV_T6, (gsize)code);
-	code = mono_riscv_emit_store (code, RISCV_T6, RISCV_FP, lmf_offset + MONO_STRUCT_OFFSET (MonoLMF, pc), 0);
+	code = mono_riscv_emit_store (code, RISCV_RA, RISCV_FP, lmf_offset + MONO_STRUCT_OFFSET (MonoLMF, pc), 0);
 	/* callee saved gregs + sp */
 	code = emit_store_regarray_cfa (cfg, code, MONO_ARCH_LMF_REGS, RISCV_FP,
-	                                lmf_offset + MONO_STRUCT_OFFSET (MonoLMF, gregs), (1 << RISCV_SP));
+	                                lmf_offset + MONO_STRUCT_OFFSET (MonoLMF, gregs), (1 << RISCV_SP | 1 << RISCV_FP));
 
 	return code;
 }
@@ -3587,6 +3602,7 @@ emit_move_args (MonoCompile *cfg, guint8 *code)
 				break;
 			case ArgOnStack:
 			case ArgVtypeOnStack:
+			case ArgVtypeByRefOnStack:
 				break;
 			default:
 				g_print ("can't process Storage type %d\n", ainfo->storage);
@@ -3621,7 +3637,13 @@ emit_move_return_value (MonoCompile *cfg, guint8 *code, MonoInst *ins)
 			if (riscv_stdext_d)
 				riscv_fsgnj_d (code, call->inst.dreg, cinfo->ret.reg, cinfo->ret.reg);
 			else
-				riscv_fsgnj_s (code, ins->dreg, cinfo->ret.reg, cinfo->ret.reg);
+				riscv_fsgnj_s (code, call->inst.dreg, cinfo->ret.reg, cinfo->ret.reg);
+		}
+		break;
+	case ArgInFRegR4:
+		g_assert (riscv_stdext_d || riscv_stdext_f);
+		if (call->inst.dreg != cinfo->ret.reg) {
+			riscv_fsgnj_s (code, call->inst.dreg, cinfo->ret.reg, cinfo->ret.reg);
 		}
 		break;
 	case ArgVtypeInIReg: {
@@ -4044,6 +4066,15 @@ mono_arch_output_basic_block (MonoCompile *cfg, MonoBasicBlock *bb)
 			mono_riscv_patch (branch_label, code, MONO_R_RISCV_BNE);
 			break;
 		}
+		case OP_BREAK:
+			/*
+			 * gdb does not like encountering the hw breakpoint ins in the debugged code.
+			 * So instead of emitting a trap, we emit a call a C function and place a
+			 * breakpoint there.
+			 */
+			code = mono_riscv_emit_call (cfg, code, MONO_PATCH_INFO_JIT_ICALL_ID,
+			                             GUINT_TO_POINTER (MONO_JIT_ICALL_mono_break));
+			break;
 
 		case OP_NOP:
 		case OP_RELAXED_NOP:
@@ -4610,13 +4641,17 @@ mono_arch_output_basic_block (MonoCompile *cfg, MonoBasicBlock *bb)
 			break;
 		}
 		case OP_CALL_REG:
+		case OP_RCALL_REG:
+		case OP_FCALL_REG:
 		case OP_VOIDCALL_REG:
+		case OP_VCALL2_REG:
 			// JALR x1, 0(src1)
 			riscv_jalr (code, RISCV_RA, ins->sreg1, 0);
 			code = emit_move_return_value (cfg, code, ins);
 			break;
 		case OP_CALL_MEMBASE:
 		case OP_LCALL_MEMBASE:
+		case OP_RCALL_MEMBASE:
 		case OP_FCALL_MEMBASE:
 		case OP_VCALL2_MEMBASE:
 		case OP_VOIDCALL_MEMBASE:
@@ -4733,7 +4768,7 @@ mono_arch_output_basic_block (MonoCompile *cfg, MonoBasicBlock *bb)
 		case OP_ENDFILTER: {
 			MonoInst *spvar = mono_find_spvar_for_region (cfg, bb->region);
 			if (cfg->param_area)
-				riscv_addi (code, RISCV_SP, RISCV_SP, -cfg->param_area);
+				riscv_addi (code, RISCV_SP, RISCV_SP, cfg->param_area);
 			if (ins->opcode == OP_ENDFILTER && ins->sreg1 != RISCV_A0)
 				riscv_addi (code, RISCV_A0, ins->sreg1, 0);
 
