@@ -3463,7 +3463,7 @@ mono_handle_native_crash (const char *signal, MonoContext *mctx, MONO_SIG_HANDLE
 	g_async_safe_printf("\n=================================================================\n");
 	g_async_safe_printf("\tNative Crash Reporting\n");
 	g_async_safe_printf("=================================================================\n");
-	g_async_safe_printf("Got a %s while executing native code. This usually indicates\n", signal);
+	g_async_safe_printf("Got a %s (%d) while executing native code. This usually indicates\n", signal, info->si_signo);
 	g_async_safe_printf("a fatal error in the mono runtime or one of the native libraries \n");
 	g_async_safe_printf("used by your application.\n");
 	g_async_safe_printf("=================================================================\n");

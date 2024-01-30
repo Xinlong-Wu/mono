@@ -35,17 +35,18 @@ dummy_use: src1:i len:0
 il_seq_point: len:0
 seq_point: len:0
 
+arglist: src1:i len:12
 check_this: src1:b len:4
 get_ex_obj: dest:i len:4
 gc_safe_point: src1:i len:12 clob:c
-start_handler: len:16 clob:c
+start_handler: len:36 clob:c
 call_handler: len:4 clob:c
 endfinally: len:32
 endfilter: src1:i len:32
 localloc: dest:i src1:i len:52
 localloc_imm: dest:i len:28
 generic_class_init: src1:a len:12 clob:c
-ckfinite: dest:f src1:f len:28
+ckfinite: dest:f src1:f len:32
 break: len:4
 
 throw: src1:i len:4
@@ -60,7 +61,7 @@ call_membase: dest:a src1:b len:20 clob:c
 voidcall: len:4 clob:c
 voidcall_reg: src1:i len:4 clob:c
 voidcall_membase: src1:b len:20 clob:c
-vcall2: len:16 clob:c
+vcall2: len:24 clob:c
 vcall2_reg: src1:i len:16 clob:c
 vcall2_membase: src1:b len:28 clob:c
 fcall: dest:f len:8 clob:c
@@ -101,8 +102,8 @@ loadr4_membase: dest:f src1:b len:24
 loadr8_membase: dest:f src1:b len:24
 
 memory_barrier: len:4
-atomic_add_i4: dest:i src1:i src2:i len:4
-atomic_add_i8: dest:i src1:i src2:i len:4
+atomic_add_i4: dest:i src1:i src2:i len:8
+atomic_add_i8: dest:i src1:i src2:i len:8
 atomic_store_i1: dest:b src1:i len:8
 atomic_store_u1: dest:b src1:i len:8
 atomic_store_i2: dest:b src1:i len:8
@@ -137,18 +138,18 @@ iconst: dest:i len:16
 int_add: dest:i src1:i src2:i len:4
 int_sub: dest:i src1:i src2:i len:4
 int_mul: dest:i src1:i src2:i len:4
-int_div: dest:i src1:i src2:i len:32
+int_div: dest:i src1:i src2:i len:80
 int_div_un: dest:i src1:i src2:i len:32
-int_rem: dest:i src1:i src2:i len:32
+int_rem: dest:i src1:i src2:i len:80
 int_rem_un: dest:i src1:i src2:i len:32
 
 i8const: dest:i len:16
 long_add: dest:i src1:i src2:i len:4
 long_sub: dest:i src1:i src2:i len:4
 long_mul: dest:i src1:i src2:i len:4
-long_div: dest:i src1:i src2:i len:32
+long_div: dest:i src1:i src2:i len:80
 long_div_un: dest:i src1:i src2:i len:32
-long_rem: dest:i src1:i src2:i len:32
+long_rem: dest:i src1:i src2:i len:80
 long_rem_un: dest:i src1:i src2:i len:32
 
 r8const: dest:f len:16
